@@ -51,11 +51,11 @@ class ShareAllocator:
 
         self.table = table
 
-        # Default portfolio
-        self.add_row(["S&P 500 ETF", "0", "USD", "0", "55"])
+        # ─── Default portfolio (FIXED WEIGHTS) ────────────────────
+        self.add_row(["S&P 500 ETF", "0", "USD", "0", "50"])
+        self.add_row(["World ex-US ETF", "0", "GBP", "0", "15"])
         self.add_row(["Bond ETF", "0", "GBP", "0", "25"])
         self.add_row(["Gold ETC", "0", "USD", "0", "10"])
-        self.add_row(["World ex-US ETF", "0", "GBP", "0", "10"])
 
         # ─── Output ───────────────────────────────────────────────
         self.output = tk.Text(
@@ -67,19 +67,16 @@ class ShareAllocator:
         row = len(self.rows) + 1
         entries = []
 
-        # Instrument name
         e0 = tk.Entry(self.table, width=22)
         e0.insert(0, values[0] if values else "")
         e0.grid(row=row, column=0)
         entries.append(e0)
 
-        # Price
         e1 = tk.Entry(self.table, width=22)
         e1.insert(0, values[1] if values else "0")
         e1.grid(row=row, column=1)
         entries.append(e1)
 
-        # Currency dropdown
         currency = ttk.Combobox(
             self.table, values=["GBP", "USD"], width=19, state="readonly"
         )
@@ -87,13 +84,11 @@ class ShareAllocator:
         currency.grid(row=row, column=2)
         entries.append(currency)
 
-        # Shares held
         e3 = tk.Entry(self.table, width=22)
         e3.insert(0, values[3] if values else "0")
         e3.grid(row=row, column=3)
         entries.append(e3)
 
-        # Weight
         e4 = tk.Entry(self.table, width=22)
         e4.insert(0, values[4] if values else "0")
         e4.grid(row=row, column=4)
@@ -112,14 +107,12 @@ class ShareAllocator:
             if cash < 0 or monthly < 0 or fx <= 0:
                 raise ValueError
         except:
-            messagebox.showerror(
-                "Input error",
-                "Cash, monthly contribution, and FX rate must be valid non-negative numbers."
-            )
+            messagebox.showerror("Input error", "Invalid cash, monthly or FX rate.")
             return
 
         instruments = []
         portfolio_value = cash
+        total_weight = 0.0
 
         for r in self.rows:
             try:
@@ -129,12 +122,10 @@ class ShareAllocator:
                 shares = int(r[3].get())
                 weight = float(r[4].get()) / 100
 
-                if raw_price < 0 or shares < 0 or weight < 0:
-                    continue
-
                 price_gbp = raw_price if currency == "GBP" else raw_price * fx
                 value = price_gbp * shares
                 portfolio_value += value
+                total_weight += weight
 
                 instruments.append({
                     "name": name,
@@ -146,8 +137,12 @@ class ShareAllocator:
             except:
                 continue
 
-        if not instruments:
-            messagebox.showerror("Input error", "No valid instruments.")
+        # ─── Weight validation (CRITICAL) ─────────────────────────
+        if abs(total_weight - 1.0) > 0.001:
+            messagebox.showerror(
+                "Weight error",
+                f"Target weights must sum to 100% (currently {total_weight*100:.1f}%)."
+            )
             return
 
         all_zero = all(inst["shares"] == 0 for inst in instruments)
@@ -156,23 +151,21 @@ class ShareAllocator:
             tk.END, f"PORTFOLIO VALUE (GBP): £{portfolio_value:,.2f}\n\n"
         )
 
-        # ─── INITIAL BUILD MODE ───────────────────────────────────
+        # ─── INITIAL BUILD ────────────────────────────────────────
         if all_zero:
             remaining_cash = cash
             self.output.insert(tk.END, "INITIAL BUILD PLAN\n")
             self.output.insert(tk.END, "-" * 70 + "\n")
 
-            for inst in sorted(instruments, key=lambda x: x["weight"], reverse=True):
+            for inst in instruments:
                 if inst["price_gbp"] <= 0:
                     continue
 
                 target = portfolio_value * inst["weight"]
-                max_target = int(target // inst["price_gbp"])
-                max_cash = int(remaining_cash // inst["price_gbp"])
-                qty = min(max_target, max_cash)
+                qty = int(target // inst["price_gbp"])
+                cost = qty * inst["price_gbp"]
 
-                if qty > 0:
-                    cost = qty * inst["price_gbp"]
+                if qty > 0 and cost <= remaining_cash:
                     remaining_cash -= cost
                     self.output.insert(
                         tk.END,
@@ -181,11 +174,9 @@ class ShareAllocator:
                     )
 
             self.output.insert(tk.END, "-" * 70 + "\n")
-            self.output.insert(
-                tk.END, f"Cash remaining: £{remaining_cash:.2f}\n"
-            )
+            self.output.insert(tk.END, f"Cash remaining: £{remaining_cash:.2f}\n")
 
-        # ─── DCA MODE ────────────────────────────────────────────
+        # ─── DCA MODE ─────────────────────────────────────────────
         else:
             cash += monthly
             portfolio_value += monthly
@@ -193,6 +184,7 @@ class ShareAllocator:
             for inst in instruments:
                 inst["target"] = portfolio_value * inst["weight"]
                 inst["gap"] = inst["target"] - inst["value"]
+                inst["gap_pct"] = inst["gap"] / inst["target"] if inst["target"] > 0 else 0
 
             affordable = [
                 inst for inst in instruments
@@ -211,21 +203,16 @@ class ShareAllocator:
                     f"Gap £{inst['gap']:9.2f}\n"
                 )
 
-            self.output.insert(tk.END, "\n")
-
             if affordable:
-                buy = max(affordable, key=lambda x: x["gap"])
+                buy = max(affordable, key=lambda x: x["gap_pct"])
                 self.output.insert(
                     tk.END,
-                    f"RECOMMENDED BUY:\n"
+                    f"\nRECOMMENDED BUY:\n"
                     f"Buy 1 × {buy['name']} @ £{buy['price_gbp']:.2f}\n"
                     f"Cash after buy: £{cash - buy['price_gbp']:.2f}\n"
                 )
             else:
-                self.output.insert(
-                    tk.END,
-                    "No trade this month.\n"
-                )
+                self.output.insert(tk.END, "\nNo trade this month.\n")
 
         self.output.config(state="disabled")
 
