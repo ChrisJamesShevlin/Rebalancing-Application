@@ -166,9 +166,9 @@ class ShareAllocator:
 
         self.table = panel
 
-        self.add_row(["S&P 500 ETF", "0", "0", "36.0"])
-        self.add_row(["World ex-US ETF", "0", "0", "24.0"])
-        self.add_row(["Bond ETF", "0", "0", "40.0"])
+        self.add_row(["S&P 500 ETF", "0", "0", "42.0"])
+        self.add_row(["World ex-US ETF", "0", "0", "28.0"])
+        self.add_row(["Bond ETF", "0", "0", "30.0"])
 
     def _build_buttons(self, parent):
         btn_frame = tk.Frame(parent, bg=self.colors["bg"])
